@@ -1,0 +1,24 @@
+{
+    "discord": {
+        "token": "",
+        "outputChannelId": 0,
+        "listenTo": {
+            "channels": [],
+            "users": []
+        }
+    },
+    "repository": {
+        "devBranchName": "",
+        "masterBranchName": "",
+        "onlyMaster": false,
+        "url": "",
+        "downloadTo": ""
+    },
+    "torrent": {
+        "createAt": "",
+        "trackers": [],
+        "webUrl": "",
+        "login": "",
+        "password": ""
+    }
+}
