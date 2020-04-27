@@ -3,20 +3,27 @@
         "token": "",
         "outputChannelId": 0,
         "listenTo": {
-            "channels": [],
-            "users": []
+            "channels": [
+                0
+            ],
+            "hookId": [
+                0
+            ]
         }
     },
     "repository": {
+        "onlyMaster": false,
         "devBranchName": "",
         "masterBranchName": "",
-        "onlyMaster": false,
         "url": "",
         "downloadTo": ""
     },
     "torrent": {
+        "enabled": false,
         "createAt": "",
-        "trackers": [],
+        "trackers": [
+            ""
+        ],
         "webUrl": "",
         "login": "",
         "password": ""
