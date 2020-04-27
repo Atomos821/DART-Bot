@@ -7,9 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+"""
+A ghetto script to to ghetto things.
+"""
+
 # TODO: write documentation
-# TODO: some "proper" logging
-# TODO: start torrenting
+# TODO: add some "proper" logging
+# TODO: default to disabled torrenting when it's impossible to connect to the qbittorrent web api
 
 CONFIG: Dict[str, Any] = dict()
 CLIENT: Client = Client()
@@ -17,18 +21,16 @@ QBCLIENT: QBClient
 
 
 def start_seeding(tp: str, fp: str) -> None:
-    print("tp:", tp)
-    print("fp:", fp)
-
     with open(tp, "rb") as torrent_file:
         QBCLIENT.download_from_file(torrent_file, savepath=fp)
+
+    print("  Seeding the torrent...")
 
 
 def create_torrent(fp: str) -> str:
     """
     Not documented yet.
     """
-
     create_at: Any = Path(CONFIG["torrent"]["createAt"]).resolve()
 
     # Get the file name.
@@ -41,6 +43,8 @@ def create_torrent(fp: str) -> str:
     t.generate()
     t.write(t_path)
 
+    print(f"  -> Created torrent file: {t_path}")
+
     return str(t_path)
 
 
@@ -48,8 +52,9 @@ def download_file(url: str) -> Tuple[bool, str]:
     """
     Download the file at the given url and save it in a folder.
     """
-
     dl_to: Any = Path(CONFIG["repository"]["downloadTo"]).resolve()
+
+    print("url", url)
 
     filename: str = url.split("/")[-1].split(".zip")[0]
 
@@ -66,106 +71,108 @@ def download_file(url: str) -> Tuple[bool, str]:
             f.write(response.content)
 
         success = True
+
+        print(f"  -> Downloaded repo archive to: {filepath}")
     except Exception as identifier:
+        print(f"  -> Failed to download.")
         print(identifier)
 
     return success, str(filepath)
 
 
-def get_repo_archive_url(repo_url: str) -> str:
-    fixed_url: str = repo_url
-
-    if not repo_url.endswith("/"):
-        fixed_url += "/"
-        print("was missing /")
-
-    if not repo_url.endswith("archive/"):
-        fixed_url += "archive/"
-        print("was missing archive/")
-
-    return fixed_url
-
-
 def is_valid_message(message: Message) -> bool:
-    # Doing some boolean checks here.
-    # I like my ifs like how I like my books: Easy to read.
-    valid_user: bool = str(message.author) in CONFIG["discord"]["listenTo"]["users"]
-    valid_chan: bool = message.channel.name in CONFIG["discord"]["listenTo"]["channels"]
-    author_is_self: bool = message.author == CLIENT.user
-    only_master: bool = CONFIG["repository"]["onlyMaster"]
+    print(f"New message from: {message.author} (id:{message.author.id})")
+
+    if len(message.embeds) <= 0:
+        print("  -> Not a valid message.")
+        return False  # Message has no embed content, end it there.
 
     dev_branch: str = CONFIG["repository"]["devBranchName"]
+    embed: Dict[Any, Any] = message.embeds[0].to_dict()
 
-    # Message has no embed content, will cause error if not checked first.
-    if len(message.embeds) <= 0:
-        return False
-
-    # It's supposed to have only one embed.
-    msg_embed: Dict[Any, Any] = message.embeds[0].to_dict()
+    print(not message.author.id in CONFIG["discord"]["listenTo"]["hookId"])
+    print(not message.channel.id in CONFIG["discord"]["listenTo"]["channels"])
+    print((f":{dev_branch}" in embed["title"] and CONFIG["repository"]["onlyMaster"]))
 
     if (
-        author_is_self
-        or not valid_user
-        or not valid_chan
-        or (f":{dev_branch}" in msg_embed["title"] and only_master)
+        not message.author.id in CONFIG["discord"]["listenTo"]["hookId"]
+        or not message.channel.id in CONFIG["discord"]["listenTo"]["channels"]
+        or (f":{dev_branch}" in embed["title"] and CONFIG["repository"]["onlyMaster"])
     ):
+        print("  -> Not a valid message.")
         return False
     else:
+        print("  -> Valid message.")
         return True
+
+
+def get_file_url(repo_url: str, text: str) -> str:
+    dev_branch: str = CONFIG["repository"]["devBranchName"]
+    master_branch: str = CONFIG["repository"]["masterBranchName"]
+
+    print("text :", text)
+    print("lower cased: ", text.lower())
+
+    url: str = repo_url
+
+    if not repo_url.endswith("/"):
+        url += "/"  # from "http://repo.github.com" to "http://repo.github.com/"
+
+    if not repo_url.endswith("archive/"):
+        url += "archive/"  # from "http://repo.github.com/" to "http://repo.github.com/archive/"
+
+    if "new release" in text.lower():
+        # remove the backslash before some chars
+        tag: str = text.split("New release published: ")[-1].replace("\\", "")
+
+        url += f"{tag}.zip"
+    elif "new commit" in text.lower():
+        # Adds the final part of the url to the file.
+        if f":{dev_branch}" in text:
+            url += f"{dev_branch}.zip"
+        elif f":{master_branch}" in text:
+            url += f"{master_branch}.zip"
+
+    print("release url: ", url)
+
+    return url
 
 
 @CLIENT.event
 async def on_message(message: Message) -> None:
+    print("================")
     if not is_valid_message(message):
-        return  # Ignore message.
+        return  # Invalid message, ignores it.
 
-    dev_branch: str = CONFIG["repository"]["devBranchName"]
-    master_branch: str = CONFIG["repository"]["masterBranchName"]
-    output_channel_id: int = CONFIG["discord"]["outputChannelId"]
-    url: str = get_repo_archive_url(CONFIG["repository"]["url"])
+    output_channel: TextChannel = CLIENT.get_channel(
+        CONFIG["discord"]["outputChannelId"]
+    )
 
-    output_channel: TextChannel = CLIENT.get_channel(output_channel_id)
-    msg_embed: Dict[Any, Any] = message.embeds[0].to_dict()
+    url: str = get_file_url(
+        CONFIG["repository"]["url"], message.embeds[0].to_dict()["title"]
+    )
 
-    if "new release" in msg_embed["title"]:
-        pass  # TODO: Do something if it's a release.
+    dl_response: Tuple[bool, str] = download_file(url)  # success and filepath
 
-    elif "new commit" in msg_embed["title"]:
+    if not dl_response[0]:
+        # Notify end-users on Discord that the download failed.
+        await output_channel.send(
+            "Something went wrong with the download...\nYou might want to contact an admin."
+        )
+    else:
+        # Notify end-users on Discord that the download succeeded.
 
-        # Appends the archive url with the correct zip file.
-        if f":{dev_branch}" in msg_embed["title"]:
-            url += f"{dev_branch}.zip"
-        elif f":{master_branch}" in msg_embed["title"]:
-            url += f"{master_branch}.zip"
+        if CONFIG["torrent"]["enabled"]:
+            torrentpath: str = create_torrent(dl_response[1])
 
-        filepath: str
-        success: bool
-        msg: str
-
-        success, filepath = download_file(url)
-
-        if not success:
-            # Shitty logs to the console.
-            print("Could not write to file:", filepath)
-
-            # Notify end users on Discord.
-            msg = "Something went wrong with the download...\nYou might want to contact an admin."
-            await output_channel.send(msg)
-
-            # Leaves the function quietly.
-            return
-        else:
-            print("Downloaded file successfully.", filepath)
-
-            msg = "Downloaded the new update successfully.\nCreating torrent..."
-            await output_channel.send(msg)
-
-            torrentpath: str = create_torrent(filepath)
-
-            start_seeding(torrentpath, filepath)
+            start_seeding(torrentpath, dl_response[1])
 
             await output_channel.send(
                 content="New version is available via P2P", file=File(torrentpath)
+            )
+        else:
+            await output_channel.send(
+                "Downloaded the new update successfully.\nWaiting for the messiah to torrent it..."
             )
 
 
@@ -184,13 +191,15 @@ def load_config() -> None:
 
 
 def main() -> None:
-    global QBCLIENT
-
     load_config()
 
-    QBCLIENT = QBClient(CONFIG["torrent"]["webUrl"])
-    QBCLIENT.login(CONFIG["torrent"]["login"], CONFIG["torrent"]["password"])
+    if CONFIG["torrent"]["enabled"]:
+        global QBCLIENT
 
+        QBCLIENT = QBClient(CONFIG["torrent"]["webUrl"])
+        QBCLIENT.login(CONFIG["torrent"]["login"], CONFIG["torrent"]["password"])
+
+    print("Running...")
     CLIENT.run(CONFIG["discord"]["token"])
 
 
