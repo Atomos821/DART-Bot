@@ -37,7 +37,7 @@ def create_torrent(fp: str) -> str:
     t_name: str = fp.split("\\")[-1].split(".zip")[0]
 
     # Append the paths and create a (hopefully) unique file name.
-    t_path: Any = create_at / f"[unstable]_{t_name}.torrent"
+    t_path: Any = create_at / f"{t_name}.torrent"
 
     t: Torrent = Torrent(fp, trackers=CONFIG["torrent"]["trackers"])
     t.generate()
@@ -57,6 +57,13 @@ def download_file(url: str) -> Tuple[bool, str]:
     print("url", url)
 
     filename: str = url.split("/")[-1].split(".zip")[0]
+
+    if CONFIG["repository"]["devBranchName"] in filename:
+        filename = f"[unstable]_{filename}" 
+    elif CONFIG["repository"]["masterBranchName"] in filename:
+        filename = f"[stable]_{filename}" 
+    elif not CONFIG["repository"]["devBranchName"] in filename and not CONFIG["repository"]["masterBranchName"] in filename:
+        filename = f"[release]_{filename}"
 
     dt: str = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
